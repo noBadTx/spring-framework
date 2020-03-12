@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2013 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,13 +22,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHeaders;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
-import static org.junit.Assert.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 /**
  * Test fixture for {@link NativeMessageHeaderAccessor}.
@@ -37,90 +38,190 @@ import static org.junit.Assert.*;
  */
 public class NativeMessageHeaderAccessorTests {
 
-
 	@Test
-	public void originalNativeHeaders() {
-		MultiValueMap<String, String> original = new LinkedMultiValueMap<>();
-		original.add("foo", "bar");
-		original.add("bar", "baz");
+	public void createFromNativeHeaderMap() {
+		MultiValueMap<String, String> inputNativeHeaders = new LinkedMultiValueMap<>();
+		inputNativeHeaders.add("foo", "bar");
+		inputNativeHeaders.add("bar", "baz");
 
-		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(original);
-		Map<String, Object> actual = headers.toMap();
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor(inputNativeHeaders);
+		Map<String, Object> actual = headerAccessor.toMap();
 
-		assertEquals(1, actual.size());
-		assertNotNull(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS));
-		assertEquals(original, actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS));
+		assertThat(actual.size()).as(actual.toString()).isEqualTo(1);
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNotNull();
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isEqualTo(inputNativeHeaders);
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNotSameAs(inputNativeHeaders);
 	}
 
 	@Test
-	public void wrapMessage() {
+	public void createFromMessage() {
+		MultiValueMap<String, String> inputNativeHeaders = new LinkedMultiValueMap<>();
+		inputNativeHeaders.add("foo", "bar");
+		inputNativeHeaders.add("bar", "baz");
 
-		MultiValueMap<String, String> originalNativeHeaders = new LinkedMultiValueMap<>();
-		originalNativeHeaders.add("foo", "bar");
-		originalNativeHeaders.add("bar", "baz");
+		Map<String, Object> inputHeaders = new HashMap<>();
+		inputHeaders.put("a", "b");
+		inputHeaders.put(NativeMessageHeaderAccessor.NATIVE_HEADERS, inputNativeHeaders);
 
-		Map<String, Object> original = new HashMap<String, Object>();
-		original.put("a", "b");
-		original.put(NativeMessageHeaderAccessor.NATIVE_HEADERS, originalNativeHeaders);
+		GenericMessage<String> message = new GenericMessage<>("p", inputHeaders);
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor(message);
+		Map<String, Object> actual = headerAccessor.toMap();
 
-		GenericMessage<String> message = new GenericMessage<>("p", original);
-
-		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(message);
-		Map<String, Object> actual = headers.toMap();
-
-		assertEquals(4, actual.size());
-		assertNotNull(actual.get(MessageHeaders.ID));
-		assertNotNull(actual.get(MessageHeaders.TIMESTAMP));
-		assertEquals("b", actual.get("a"));
-		assertNotNull(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS));
-		assertEquals(originalNativeHeaders, actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS));
+		assertThat(actual.size()).isEqualTo(2);
+		assertThat(actual.get("a")).isEqualTo("b");
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNotNull();
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isEqualTo(inputNativeHeaders);
+		assertThat(actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNotSameAs(inputNativeHeaders);
 	}
 
 	@Test
-	public void wrapNullMessage() {
-		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor((Message<?>) null);
-		Map<String, Object> actual = headers.toMap();
+	public void createFromMessageNull() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor((Message<?>) null);
 
-		assertEquals(1, actual.size());
+		Map<String, Object> actual = headerAccessor.toMap();
+		assertThat(actual.size()).isEqualTo(0);
+
+		Map<String, List<String>> actualNativeHeaders = headerAccessor.toNativeHeaderMap();
+		assertThat(actualNativeHeaders).isEqualTo(Collections.emptyMap());
+	}
+
+	@Test
+	public void createFromMessageAndModify() {
+
+		MultiValueMap<String, String> inputNativeHeaders = new LinkedMultiValueMap<>();
+		inputNativeHeaders.add("foo", "bar");
+		inputNativeHeaders.add("bar", "baz");
+
+		Map<String, Object> nativeHeaders = new HashMap<>();
+		nativeHeaders.put("a", "b");
+		nativeHeaders.put(NativeMessageHeaderAccessor.NATIVE_HEADERS, inputNativeHeaders);
+
+		GenericMessage<String> message = new GenericMessage<>("p", nativeHeaders);
+
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor(message);
+		headerAccessor.setHeader("a", "B");
+		headerAccessor.setNativeHeader("foo", "BAR");
+
+		Map<String, Object> actual = headerAccessor.toMap();
+
+		assertThat(actual.size()).isEqualTo(2);
+		assertThat(actual.get("a")).isEqualTo("B");
 
 		@SuppressWarnings("unchecked")
 		Map<String, List<String>> actualNativeHeaders =
 				(Map<String, List<String>>) actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS);
 
-		assertEquals(Collections.emptyMap(), actualNativeHeaders);
+		assertThat(actualNativeHeaders).isNotNull();
+		assertThat(actualNativeHeaders.get("foo")).isEqualTo(Arrays.asList("BAR"));
+		assertThat(actualNativeHeaders.get("bar")).isEqualTo(Arrays.asList("baz"));
 	}
 
 	@Test
-	public void wrapMessageAndModifyHeaders() {
+	public void setNativeHeader() {
+		MultiValueMap<String, String> nativeHeaders = new LinkedMultiValueMap<>();
+		nativeHeaders.add("foo", "bar");
 
-		MultiValueMap<String, String> originalNativeHeaders = new LinkedMultiValueMap<>();
-		originalNativeHeaders.add("foo", "bar");
-		originalNativeHeaders.add("bar", "baz");
+		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(nativeHeaders);
+		headers.setNativeHeader("foo", "baz");
 
-		Map<String, Object> original = new HashMap<String, Object>();
-		original.put("a", "b");
-		original.put(NativeMessageHeaderAccessor.NATIVE_HEADERS, originalNativeHeaders);
+		assertThat(headers.getNativeHeader("foo")).isEqualTo(Arrays.asList("baz"));
+	}
 
-		GenericMessage<String> message = new GenericMessage<>("p", original);
+	@Test
+	public void setNativeHeaderNullValue() {
+		MultiValueMap<String, String> nativeHeaders = new LinkedMultiValueMap<>();
+		nativeHeaders.add("foo", "bar");
 
-		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(message);
-		headers.setHeader("a", "B");
-		headers.setNativeHeader("foo", "BAR");
+		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(nativeHeaders);
+		headers.setNativeHeader("foo", null);
 
-		Map<String, Object> actual = headers.toMap();
+		assertThat(headers.getNativeHeader("foo")).isNull();
+	}
 
-		assertEquals(4, actual.size());
-		assertNotNull(actual.get(MessageHeaders.ID));
-		assertNotNull(actual.get(MessageHeaders.TIMESTAMP));
-		assertEquals("B", actual.get("a"));
+	@Test
+	public void setNativeHeaderLazyInit() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.setNativeHeader("foo", "baz");
 
-		@SuppressWarnings("unchecked")
-		Map<String, List<String>> actualNativeHeaders =
-				(Map<String, List<String>>) actual.get(NativeMessageHeaderAccessor.NATIVE_HEADERS);
+		assertThat(headerAccessor.getNativeHeader("foo")).isEqualTo(Arrays.asList("baz"));
+	}
 
-		assertNotNull(actualNativeHeaders);
-		assertEquals(Arrays.asList("BAR"), actualNativeHeaders.get("foo"));
-		assertEquals(Arrays.asList("baz"), actualNativeHeaders.get("bar"));
+	@Test
+	public void setNativeHeaderLazyInitNullValue() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.setNativeHeader("foo", null);
+
+		assertThat(headerAccessor.getNativeHeader("foo")).isNull();
+		assertThat(headerAccessor.getMessageHeaders().get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNull();
+	}
+
+	@Test
+	public void setNativeHeaderImmutable() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.setNativeHeader("foo", "bar");
+		headerAccessor.setImmutable();
+
+		assertThatIllegalStateException().isThrownBy(() ->
+				headerAccessor.setNativeHeader("foo", "baz"))
+			.withMessageContaining("Already immutable");
+	}
+
+	@Test
+	public void addNativeHeader() {
+		MultiValueMap<String, String> nativeHeaders = new LinkedMultiValueMap<>();
+		nativeHeaders.add("foo", "bar");
+
+		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(nativeHeaders);
+		headers.addNativeHeader("foo", "baz");
+
+		assertThat(headers.getNativeHeader("foo")).isEqualTo(Arrays.asList("bar", "baz"));
+	}
+
+	@Test
+	public void addNativeHeaderNullValue() {
+		MultiValueMap<String, String> nativeHeaders = new LinkedMultiValueMap<>();
+		nativeHeaders.add("foo", "bar");
+
+		NativeMessageHeaderAccessor headers = new NativeMessageHeaderAccessor(nativeHeaders);
+		headers.addNativeHeader("foo", null);
+
+		assertThat(headers.getNativeHeader("foo")).isEqualTo(Arrays.asList("bar"));
+	}
+
+	@Test
+	public void addNativeHeaderLazyInit() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.addNativeHeader("foo", "bar");
+
+		assertThat(headerAccessor.getNativeHeader("foo")).isEqualTo(Arrays.asList("bar"));
+	}
+
+	@Test
+	public void addNativeHeaderLazyInitNullValue() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.addNativeHeader("foo", null);
+
+		assertThat(headerAccessor.getNativeHeader("foo")).isNull();
+		assertThat(headerAccessor.getMessageHeaders().get(NativeMessageHeaderAccessor.NATIVE_HEADERS)).isNull();
+	}
+
+	@Test
+	public void addNativeHeaderImmutable() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.addNativeHeader("foo", "bar");
+		headerAccessor.setImmutable();
+
+		assertThatIllegalStateException().isThrownBy(() ->
+				headerAccessor.addNativeHeader("foo", "baz"))
+			.withMessageContaining("Already immutable");
+	}
+
+	@Test
+	public void setImmutableIdempotent() {
+		NativeMessageHeaderAccessor headerAccessor = new NativeMessageHeaderAccessor();
+		headerAccessor.addNativeHeader("foo", "bar");
+		headerAccessor.setImmutable();
+		headerAccessor.setImmutable();
 	}
 
 }

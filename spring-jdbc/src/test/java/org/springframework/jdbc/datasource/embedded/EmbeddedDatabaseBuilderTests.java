@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2014 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,13 +16,17 @@
 
 package org.springframework.jdbc.datasource.embedded;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
 import org.springframework.core.io.ClassRelativeResourceLoader;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.CannotReadScriptException;
+import org.springframework.jdbc.datasource.init.ScriptStatementFailedException;
 
-import static org.junit.Assert.*;
-import static org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType.DERBY;
+import static org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType.H2;
 
 /**
  * Integration tests for {@link EmbeddedDatabaseBuilder}.
@@ -50,9 +54,10 @@ public class EmbeddedDatabaseBuilderTests {
 		});
 	}
 
-	@Test(expected = CannotReadScriptException.class)
+	@Test
 	public void addScriptWithBogusFileName() {
-		new EmbeddedDatabaseBuilder().addScript("bogus.sql").build();
+		assertThatExceptionOfType(CannotReadScriptException.class).isThrownBy(
+				new EmbeddedDatabaseBuilder().addScript("bogus.sql")::build);
 	}
 
 	@Test
@@ -159,14 +164,56 @@ public class EmbeddedDatabaseBuilderTests {
 		});
 	}
 
+	@Test
+	public void createSameSchemaTwiceWithoutUniqueDbNames() throws Exception {
+		EmbeddedDatabase db1 = new EmbeddedDatabaseBuilder(new ClassRelativeResourceLoader(getClass()))
+				.addScripts("db-schema-without-dropping.sql").build();
+		try {
+			assertThatExceptionOfType(ScriptStatementFailedException.class).isThrownBy(() ->
+					new EmbeddedDatabaseBuilder(new ClassRelativeResourceLoader(getClass())).addScripts("db-schema-without-dropping.sql").build());
+		}
+		finally {
+			db1.shutdown();
+		}
+	}
+
+	@Test
+	public void createSameSchemaTwiceWithGeneratedUniqueDbNames() throws Exception {
+		EmbeddedDatabase db1 = new EmbeddedDatabaseBuilder(new ClassRelativeResourceLoader(getClass()))//
+		.addScripts("db-schema-without-dropping.sql", "db-test-data.sql")//
+		.generateUniqueName(true)//
+		.build();
+
+		JdbcTemplate template1 = new JdbcTemplate(db1);
+		assertNumRowsInTestTable(template1, 1);
+		template1.update("insert into T_TEST (NAME) values ('Sam')");
+		assertNumRowsInTestTable(template1, 2);
+
+		EmbeddedDatabase db2 = new EmbeddedDatabaseBuilder(new ClassRelativeResourceLoader(getClass()))//
+		.addScripts("db-schema-without-dropping.sql", "db-test-data.sql")//
+		.generateUniqueName(true)//
+		.build();
+		assertDatabaseCreated(db2);
+
+		db1.shutdown();
+		db2.shutdown();
+	}
+
 	private void doTwice(Runnable test) {
 		test.run();
 		test.run();
 	}
 
+	private void assertNumRowsInTestTable(JdbcTemplate template, int count) {
+		assertThat(template.queryForObject("select count(*) from T_TEST", Integer.class).intValue()).isEqualTo(count);
+	}
+
+	private void assertDatabaseCreated(EmbeddedDatabase db) {
+		assertNumRowsInTestTable(new JdbcTemplate(db), 1);
+	}
+
 	private void assertDatabaseCreatedAndShutdown(EmbeddedDatabase db) {
-		JdbcTemplate template = new JdbcTemplate(db);
-		assertEquals("Keith", template.queryForObject("select NAME from T_TEST", String.class));
+		assertDatabaseCreated(db);
 		db.shutdown();
 	}
 
